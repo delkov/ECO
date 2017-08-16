@@ -12,7 +12,7 @@ import glob
 
 ## MUST DELETE	
 track_memory=300 # after - new track
-param_memory=[3600] + [30]*6 # 30 sec we remember param, if more, than -1 
+param_memory=[3600] + [30]*7 # 30 sec we remember param, if more, than -1 -, 3600 for callsign
 max_req_speed=0 # the bigger the more strict (problem with diff. msg. msg7 taken -> msg 2 reject this second.. and so on, so let it be 0)
 type_flight_detection_time = 30 # decision about take-off
 
@@ -60,8 +60,11 @@ def upd_msg_2(param_to_write):
 def upd_msg_3(param_to_write):
   x = list(param_to_write)
   x[3] = int(float(altitude_py))
-  x[6] = float(latitude_py)
-  x[7] = float(longitude_py)
+  # print(type(x[6]))
+  if latitude_py!=-1:
+  	x[6] = float(latitude_py)
+  if longitude_py!=-1:
+  	x[7] = float(longitude_py)
   ## UPDATE LAST_TIME FOR THIS PARAM
   SQL='''
   UPDATE eco.aircraft_tracks SET (coordinate_last_time) = (%s) WHERE track=(%s);
@@ -69,6 +72,54 @@ def upd_msg_3(param_to_write):
   '''
   data=(time_py, last_track, time_py, last_track)
   cursor.execute(SQL, data)
+
+
+
+  if latitude_py!=-1 and longitude_py!=-1 and altitude_py!=-1:
+
+
+
+   SQL='''
+   SELECT ST_SetSRID(ST_MakePoint(%s, %s), 4326);
+   '''
+   data=(longitude_py, latitude_py)
+   cursor.execute(SQL, data)
+   param_answer= cursor.fetchone()[0]
+   # print(param_answer)
+
+
+
+   SQL='''WITH geom_1 AS (
+	SELECT ST_Transform(ST_SetSRID(ST_MakePoint(%s, %s), 4326),32652) -- change to 32637 for MOSCOW
+	), point_3d AS (
+	SELECT  ST_MakePoint(ST_X(st_transform),ST_Y(st_transform), %s) FROM geom_1
+	), static_points AS (SELECT geom FROM eco.static_points WHERE name='Korea')
+
+    SELECT ST_3DDistance(st_makepoint, geom) FROM point_3d, static_points;
+    '''
+   data=(longitude_py, latitude_py, altitude_py)
+   cursor.execute(SQL, data)
+   param_answer= cursor.fetchone()[0]
+
+
+
+
+
+   SQL='''WITH geom_1 AS (
+	SELECT ST_Transform(ST_SetSRID(ST_MakePoint(%s, %s), 4326),32652) -- change to 32637 for MOSCOW
+	), point_3d AS (
+	SELECT  ST_MakePoint(ST_X(st_transform),ST_Y(st_transform), %s) FROM geom_1
+	), static_points AS (SELECT geom FROM eco.static_points WHERE name='Korea')
+
+    SELECT ST_3DDistance(st_makepoint, geom) FROM point_3d, static_points;
+    '''
+   data=(longitude_py, latitude_py, altitude_py)
+   cursor.execute(SQL, data)
+   param_answer= cursor.fetchone()[0]
+   # print(param_answer)
+   x[9] = int(float(param_answer))
+
+
   return tuple(x)
 
 def upd_msg_4(param_to_write):
@@ -80,6 +131,7 @@ def upd_msg_4(param_to_write):
   SQL='UPDATE eco.aircraft_tracks SET (speed_angle_vert_last_time) = (%s) WHERE track=(%s);'
   data=(time_py, last_track)
   cursor.execute(SQL, data)
+  # print(len(x))
   return tuple(x)
 
 def upd_msg_5(param_to_write):
@@ -117,11 +169,16 @@ except psycopg2.OperationalError as e:
 
 os.chdir("/home/delkov/Documents/MOSCOW/ECO_COMPLETE/sbs_store")
 destination_path="/home/delkov/Documents/MOSCOW/ECO_COMPLETE/sbs_store/wrong"
+store_path="/home/delkov/Documents/MOSCOW/ECO_COMPLETE/sbs_store/sbs_store"
+
 
 print('PROGRAM start working..'+str(datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
 
 while True:
-	txt_list=glob.glob('*.txt') # find all txt in the folders
+	# txt_list=glob.glob('sbs.2*') # find all txt in the folders
+
+	txt_list=sorted(glob.glob('sbs.2*'),	key = lambda file: os.path.getctime(file)) # find all txt in the folders
+
 	try:
 		for txt_temp in txt_list:
 			print(txt_temp)
@@ -179,7 +236,7 @@ while True:
 
 					# EXIST AND NOT TOO OLD
 					if time_answer and (time_py-time_answer[0][3] <= timedelta(seconds=track_memory) and time_answer[0][3] - time_py <= timedelta(seconds=track_memory)):
-						print('EXIST, MUST BE ADDED')
+						# print('EXIST, MUST BE ADDED')
 						last_track=time_answer[0][0] 
 
 						last_msg_time={
@@ -224,8 +281,10 @@ while True:
 							(SELECT longitude FROM eco.tracks WHERE track=(%s) AND longitude IS NOT NULL ORDER BY time_track desc LIMIT 1)
 							UNION ALL
 							(SELECT vertical_speed FROM eco.tracks WHERE track=(%s) AND vertical_speed IS NOT NULL ORDER BY time_track desc LIMIT 1)
+							UNION ALL
+							(SELECT distance_1 FROM eco.tracks WHERE track=(%s) AND distance_1 IS NOT NULL ORDER BY time_track desc LIMIT 1)
 							"""
-							data=(last_track, last_track, last_track, last_track, last_track, last_track)
+							data=(last_track, last_track, last_track, last_track, last_track, last_track,last_track)
 							cursor.execute(SQL, data)
 							param_answer= cursor.fetchall()
 					
@@ -239,11 +298,14 @@ while True:
 
 							# JOIN CALLSIGN & OTHER PARAMS VALUES!!
 							total_param=callsign_answer + param_answer
+							# print(total_param, 'LEN', len(total_param))
 							# TOTAL LAST_TIME FOR ALL PARAMS
-							last_time_param=[time_answer[0][4], time_answer[0][5], time_answer[0][6], time_answer[0][6], time_answer[0][7], time_answer[0][7], time_answer[0][6]]
+							last_time_param=[time_answer[0][4], time_answer[0][5], time_answer[0][6], time_answer[0][6], time_answer[0][7], time_answer[0][7], time_answer[0][6], time_answer[0][7]]
 							# CREATE A SQL QUERY
 							param_to_write=()
-							for x in range(7):
+							for x in range(8):
+								# print(x, 'last_time_param[x]:', last_time_param[x])
+								# print('total_param[x]', total_param[x][0])
 								# PREVIOUS PARAM IS NOT TOO OLD, else -1
 								if last_time_param[x] is None or ( (time_py-last_time_param[x] < timedelta(seconds=param_memory[x])) and (last_time_param[x]-time_py < timedelta(seconds=param_memory[x]))):
 									param_to_write+=(total_param[x][0],)
@@ -258,8 +320,8 @@ while True:
 
 							# ADD TO TRACK + UPDATE GENERAL LAST_TIME
 							SQL = '''
-							INSERT INTO eco.tracks (time_track, track, callsign, altitude, speed, angle, latitude, longitude, vertical_speed) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
-							ON CONFLICT (time_track,track) DO UPDATE SET callsign=EXCLUDED.callsign, altitude=EXCLUDED.altitude, speed=EXCLUDED.speed, angle=EXCLUDED.angle,  latitude=EXCLUDED.latitude, longitude=EXCLUDED.longitude,	vertical_speed= EXCLUDED.vertical_speed;
+							INSERT INTO eco.tracks (time_track, track, callsign, altitude, speed, angle, latitude, longitude, vertical_speed, distance_1) VALUES (%s,%s,%s,%s,%s, %s,%s,%s,%s,%s)
+							ON CONFLICT (time_track,track) DO UPDATE SET callsign=EXCLUDED.callsign, altitude=EXCLUDED.altitude, speed=EXCLUDED.speed, angle=EXCLUDED.angle,  latitude=EXCLUDED.latitude, longitude=EXCLUDED.longitude,	vertical_speed= EXCLUDED.vertical_speed, distance_1= EXCLUDED.distance_1;
 							UPDATE eco.aircraft_tracks SET (last_time) = (%s) WHERE track=(%s);
 							'''
 							data = new_param_to_write + (time_py,) + (last_track,)
@@ -271,7 +333,7 @@ while True:
 						print('TOO OLD OR DOESNT EXIST')
 					
 						# ADD TO aircraft_tracks
-						# !!!!!!!!!!!!!!!!!!! TO SASHA ADD icao info if not exist -- alone script to serf BD!!!!!!!!11
+						# !!!!!!!!!!!!!!!!!!! TO SASHA ADD icao info if not exist -- alone s2cript to serf BD!!!!!!!!11
 					
 						SQL = '''
 						INSERT INTO eco.aircrafts (icao) VALUES (%s) ON CONFLICT (icao) DO NOTHING;
@@ -286,14 +348,14 @@ while True:
 					
 						# try:
 						# ADD TO tracks
-						param_to_write=(time_py,)+(last_track,)+(-1,)*7
+						param_to_write=(time_py,)+(last_track,)+(-1,)*8
 						new_param_to_write=upd_msg[MSG_NUM](param_to_write)
 						# except Exception as err000:
 							# os.remove(txt_temp)
 							# print(str(datetime.now().strftime('%Y-%m-%d-%H-%M-%S')) +' '+ str(err000) + '\n')
 
 						SQL = '''
-						INSERT INTO eco.tracks (time_track, track, callsign, altitude, speed, angle, latitude, longitude, vertical_speed) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (time_track,track) DO UPDATE SET callsign=EXCLUDED.callsign, altitude=EXCLUDED.altitude, speed=EXCLUDED.speed, angle=EXCLUDED.angle,  latitude=EXCLUDED.latitude, longitude=EXCLUDED.longitude,	vertical_speed= EXCLUDED.vertical_speed;
+						INSERT INTO eco.tracks (time_track, track, callsign, altitude, speed, angle, latitude, longitude, vertical_speed, distance_1) VALUES (%s,%s,%s,%s,%s, %s,%s,%s,%s,%s) ON CONFLICT (time_track,track) DO UPDATE SET callsign=EXCLUDED.callsign, altitude=EXCLUDED.altitude, speed=EXCLUDED.speed, angle=EXCLUDED.angle,  latitude=EXCLUDED.latitude, longitude=EXCLUDED.longitude,	vertical_speed= EXCLUDED.vertical_speed, distance_1= EXCLUDED.distance_1;
 						UPDATE eco.aircraft_tracks SET (last_time) = (%s) WHERE track=(%s);
 						'''
 						data = new_param_to_write + (time_py,) + (last_track,)
@@ -304,21 +366,46 @@ while True:
 					connect.commit()
 			
 			# remove file if everything ok
+			## UNCOMMENT
 			os.remove(txt_temp)
 
-	#IF SOME ERROR THEN
+	# #IF SOME ERROR THEN
+	# except Exception as err:
+	# 	# print('EXCEPTION')
+	# 	# cursor.close()
+	# 	# connect.close()
+	# 	try:
+	# 		connect = psycopg2.connect(database='eco_db', user='postgres', host='localhost', password='z5UHwrg8', port=5432)
+	# 		cursor = connect.cursor()
+	# 	except:
+	# 		print('again failed to connect to DB')
+	# 	# print to supervisor log
+	# 	shutil.move(txt_temp, destination_path+"/"+txt_temp.split('.')[0]+'_'+str(datetime.now().strftime('%Y-%m-%d-%H-%M-%S')) +'.txt')
+	# 	print(str(datetime.now().strftime('%Y-%m-%d-%H-%M-%S')) +' '+ str(err) + '\n')
+
+
+
 	except Exception as err:
-		# print('EXCEPTION')
-		# cursor.close()
-		# connect.close()
 		try:
 			connect = psycopg2.connect(database='eco_db', user='postgres', host='localhost', password='z5UHwrg8', port=5432)
 			cursor = connect.cursor()
+			print('SQL is connected fine','\n')
+			print('some error.. with file' + txt_temp)
+			shutil.move(txt_temp, destination_path+"/"+str(datetime.now().strftime('%Y-%m-%d-%H-%M-%S'))+'_'+txt_temp)
+
 		except:
-			print('again failed to connect to DB')
-		# print to supervisor log
-		shutil.move(txt_temp, destination_path+"/"+txt_temp.split('.')[0]+'_'+str(datetime.now().strftime('%Y-%m-%d-%H-%M-%S')) +'.txt')
+			print('again failed to connect to DB', err)
+			# sql_dead=1/
+
+			# if not sql_dead:
+
+			shutil.move(txt_temp, store_path+"/"+str(datetime.now().strftime('%Y-%m-%d-%H-%M-%S'))+'_'+txt_temp)
+
+
+		#print to supervisor
 		print(str(datetime.now().strftime('%Y-%m-%d-%H-%M-%S')) +' '+ str(err) + '\n')
+
+
 
 
 	time.sleep(2)

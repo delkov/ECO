@@ -2,8 +2,6 @@
 
 path="/home/delkov/Documents/MOSCOW/ECO_COMPLETE/scp"
 
-
-
 ## MAY BE remove if condition
 
 while true

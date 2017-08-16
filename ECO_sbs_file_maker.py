@@ -4,16 +4,20 @@ import logging
 import time
 import datetime
 from logging.handlers import TimedRotatingFileHandler
+import os
+
 
 
 print('START')
-
+os.chdir("/home/delkov/Documents/MOSCOW/ECO_COMPLETE/sbs_store")
 log_file = "sbs"
 logger = logging.getLogger("Rotating Log")
 logger.setLevel(logging.INFO)
-handler = TimedRotatingFileHandler(log_file, when="m", interval=10, backupCount=0)
+handler = TimedRotatingFileHandler(log_file, when="s", interval=1, backupCount=0)
 logger.addHandler(handler)
 buffer_size=1024# sleep_time=0
+
+# big_log_file="big_log.txt"
 
 while True:
 	time.sleep(1) # avoid flood
@@ -29,6 +33,14 @@ while True:
 			if not data:
 				break
 			print(data)
+
+
+
+			# with open(big_log_file, 'a+') as f1:
+				# f1.write(data)
+
+
+			# f.write(data)
 			logger.info(data.rstrip().decode('UTF-8'))
 
 	except Exception as e:
